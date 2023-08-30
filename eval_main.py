@@ -23,7 +23,7 @@ def main():
     # set env
     setproctitle.setproctitle(f"test{CONFIG['name']}")
     os.environ["CUDA_VISIBLE_DEVICES"] = CONFIG['gpu_id']
-    device = torch.device('cuda')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # load data
     bundle_train_data, bundle_test_data, item_data, assist_data = \
