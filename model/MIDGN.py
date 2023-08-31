@@ -283,22 +283,24 @@ class MIDGN(Model):
         bundles_feature_atom, bundles_feature_non_atom = bundles_feature  # batch_n_f
         pred = torch.sum(users_feature_atom * bundles_feature_atom, 2) \
                + torch.sum(users_feature_non_atom * bundles_feature_non_atom, 2)
-        Lcon = self.contrast_loss(users_feature_atom, bundles_feature_atom) \
-               + self.contrast_loss(users_feature_non_atom, bundles_feature_non_atom)
-        return pred, Lcon
+        return pred
 
     def forward(self, users, bundles):
         users_feature, bundles_feature, atom_bundles_feature, atom_item_feature, atom_user_feature = self.propagate()
+        # print('-----------------------------------------------')
+        # print(users_feature[0].shape, users_feature[1].shape)
+        # print(bundles_feature[0].shape, bundles_feature[1].shape)
         users_embedding = [i[users].expand(- 1, bundles.shape[1], -1) for i in
                            users_feature]  # u_f --> batch_f --> batch_n_f
         bundles_embedding = [i[bundles] for i in bundles_feature]  # b_f --> batch_n_f
-        pred, L_ctst = self.predict(users_embedding, bundles_embedding)
+        pred = self.predict(users_embedding, bundles_embedding)
         loss = self.regularize(users_embedding, bundles_embedding)
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
-
-        loss = loss + L_ctst
-        return pred, loss,  torch.zeros(1).to(self.device)[0]#-self.inten_score * 0.01  # self.cor_loss[0]#
+        l_cor = self.contrast_loss(users_feature[0] @ users_feature[1].T) \
+              + self.contrast_loss(bundles_feature[0] @ bundles_feature[1].T)
+        loss = loss
+        return pred, loss, l_cor
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
@@ -495,7 +497,7 @@ class MIDGN(Model):
         # return a (n_factors)-length list of laplacian matrix
         return A_factors, A_factors_t, D_col_factors, D_row_factors
     
-    def contrast_loss(self, eck, vck):
+    def contrast_loss(self, cor_feat):
         '''
         Contrastive Loss Function
         eck: atom_feature 
@@ -503,9 +505,8 @@ class MIDGN(Model):
         pos: same intent 
         neg: diff intents
         '''
-        cor_feat = eck @ vck.T
-        iden_mat = torch.eye(eck.shape[0])
-        one_col = torch.ones(eck.shape[0], 1)
+        iden_mat = torch.eye(cor_feat.shape[0])
+        one_col = torch.ones(cor_feat.shape[0], 1)
 
         temp = cor_feat * iden_mat
 
