@@ -300,7 +300,8 @@ class MIDGN(Model):
         l_cor = self.contrast_loss(users_feature[0] @ users_feature[1].T) \
               + self.contrast_loss(bundles_feature[0] @ bundles_feature[1].T)
         loss = loss
-        return pred, loss, l_cor
+        # return pred, loss, l_cor
+        return pred, loss, torch.zeros(1).to(self.device)[0]
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
