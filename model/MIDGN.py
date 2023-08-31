@@ -492,3 +492,22 @@ class MIDGN(Model):
 
         # return a (n_factors)-length list of laplacian matrix
         return A_factors, A_factors_t, D_col_factors, D_row_factors
+    
+    def contrast_loss(self, eck, vck):
+        '''
+        Contrastive Loss Function
+        eck: atom_feature 
+        vck: non_atom_feature 
+        pos: same intent 
+        neg: diff intents
+        '''
+        cor_feat = eck @ vck.T
+        iden_mat = torch.eye(eck.shape[0])
+        one_col = torch.ones(eck.shape[0], 1)
+
+        temp = cor_feat * iden_mat
+
+        pos = torch.exp(temp @ one_col)
+        neg = torch.sum(torch.exp(cor_feat - temp))
+
+        return torch.sum(-torch.log(pos/neg))
