@@ -283,19 +283,21 @@ class MIDGN(Model):
         bundles_feature_atom, bundles_feature_non_atom = bundles_feature  # batch_n_f
         pred = torch.sum(users_feature_atom * bundles_feature_atom, 2) \
                + torch.sum(users_feature_non_atom * bundles_feature_non_atom, 2)
-        return pred
+        Lcon = self.contrast_loss(users_feature_atom, bundles_feature_atom) \
+               + self.contrast_loss(users_feature_non_atom, bundles_feature_non_atom)
+        return pred, Lcon
 
     def forward(self, users, bundles):
         users_feature, bundles_feature, atom_bundles_feature, atom_item_feature, atom_user_feature = self.propagate()
         users_embedding = [i[users].expand(- 1, bundles.shape[1], -1) for i in
                            users_feature]  # u_f --> batch_f --> batch_n_f
         bundles_embedding = [i[bundles] for i in bundles_feature]  # b_f --> batch_n_f
-        pred = self.predict(users_embedding, bundles_embedding)
+        pred, L_ctst = self.predict(users_embedding, bundles_embedding)
         loss = self.regularize(users_embedding, bundles_embedding)
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
 
-        loss = loss
+        loss = loss + L_ctst
         return pred, loss,  torch.zeros(1).to(self.device)[0]#-self.inten_score * 0.01  # self.cor_loss[0]#
 
     def regularize(self, users_feature, bundles_feature):
