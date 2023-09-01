@@ -299,8 +299,8 @@ class MIDGN(Model):
         loss = self.regularize(users_embedding, bundles_embedding)
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
-        l_cor = self.contrast_loss(users_feature[0] @ users_feature[1].T) \
-              + self.contrast_loss(bundles_feature[0] @ bundles_feature[1].T)
+        l_cor = self.contrast_loss(users_feature[0], users_feature[1]) \
+              + self.contrast_loss(bundles_feature[0], bundles_feature[1])
         loss = loss
         return pred, loss, l_cor
         # return pred, loss, torch.zeros(1).to(self.device)[0]
@@ -500,7 +500,7 @@ class MIDGN(Model):
         # return a (n_factors)-length list of laplacian matrix
         return A_factors, A_factors_t, D_col_factors, D_row_factors
     
-    def contrast_loss(self, cor_feat):
+    def contrast_loss(self, eck, vck):
         '''
         Contrastive Loss Function
         eck: atom_feature 
@@ -509,6 +509,8 @@ class MIDGN(Model):
         neg: diff intents
         '''
         # loss = InfoNCE()
+        eck, vck = normalize(eck, vck)
+        cor_feat = eck @ vck.T
         iden_mat = torch.eye(cor_feat.shape[0]).to(self.device)
         one_col = torch.ones(cor_feat.shape[0], 1).to(self.device)
 
@@ -518,3 +520,6 @@ class MIDGN(Model):
         neg = torch.sum(torch.exp(cor_feat))
 
         return torch.mean(-torch.log(pos/neg))/4
+    
+def normalize(*xs):
+    return [None if xs is None else F.normalize(x, dim=-1) for x in xs]
