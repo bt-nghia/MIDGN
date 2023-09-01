@@ -517,7 +517,7 @@ class MIDGN(Model):
         temp = cor_feat * iden_mat
 
         pos = torch.exp(temp @ one_col)
-        neg = torch.sum(torch.exp(cor_feat))
+        neg = torch.sum(torch.exp(cor_feat - temp))
 
         return torch.mean(-torch.log(pos/neg))/4
     
