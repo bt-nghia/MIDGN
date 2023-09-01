@@ -93,6 +93,7 @@ class MIDGN(Model):
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
+        self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
             torch.FloatTensor(self.num_items, emb_dim)).to(device)
@@ -300,8 +301,8 @@ class MIDGN(Model):
         l_cor = self.contrast_loss(users_feature[0] @ users_feature[1].T) \
               + self.contrast_loss(bundles_feature[0] @ bundles_feature[1].T)
         loss = loss
-        # return pred, loss, l_cor
-        return pred, loss, torch.zeros(1).to(self.device)[0]
+        return pred, loss, l_cor
+        # return pred, loss, torch.zeros(1).to(self.device)[0]
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
@@ -506,12 +507,12 @@ class MIDGN(Model):
         pos: same intent 
         neg: diff intents
         '''
-        iden_mat = torch.eye(cor_feat.shape[0])
-        one_col = torch.ones(cor_feat.shape[0], 1)
+        iden_mat = torch.eye(cor_feat.shape[0]).to(self.device)
+        one_col = torch.ones(cor_feat.shape[0], 1).to(self.device)
 
         temp = cor_feat * iden_mat
 
         pos = torch.exp(temp @ one_col)
         neg = torch.sum(torch.exp(cor_feat - temp))
 
-        return torch.sum(-torch.log(pos/neg))
+        return torch.mean(-torch.log(pos/neg))/4
