@@ -13,6 +13,7 @@ import torch_sparse
 from torch_sparse import SparseTensor
 from torch_sparse.mul import mul
 from torch.nn.parameter import  Parameter
+from info_nce import InfoNCE
 import pdb
 def spspdot(indexA, valueA, indexB, valueB, m, k, coalesced=False):
     """Matrix product of two sparse tensors. Both input sparse matrices need to
@@ -507,12 +508,13 @@ class MIDGN(Model):
         pos: same intent 
         neg: diff intents
         '''
+        # loss = InfoNCE()
         iden_mat = torch.eye(cor_feat.shape[0]).to(self.device)
         one_col = torch.ones(cor_feat.shape[0], 1).to(self.device)
 
         temp = cor_feat * iden_mat
 
         pos = torch.exp(temp @ one_col)
-        neg = torch.sum(torch.exp(cor_feat - temp))
+        neg = torch.sum(torch.exp(cor_feat))
 
         return torch.mean(-torch.log(pos/neg))/4
