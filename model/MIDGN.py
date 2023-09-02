@@ -522,4 +522,4 @@ class MIDGN(Model):
         return torch.mean(-torch.log(pos/neg))/4
     
 def normalize(*xs):
-    return [None if xs is None else F.normalize(x, dim=-1) for x in xs]
+    return [None if xs is None else F.normalize(x, p=2, dim=-1) for x in xs]
