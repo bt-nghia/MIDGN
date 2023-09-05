@@ -94,7 +94,7 @@ class MIDGN(Model):
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
-        self.c_temp = 0.25
+        self.c_temp = 1
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
