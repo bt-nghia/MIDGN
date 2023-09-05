@@ -94,7 +94,8 @@ class MIDGN(Model):
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
-        self.c_temp = 1
+        self.c_temp = 0.25
+        self.beta = 0.04
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -300,7 +301,7 @@ class MIDGN(Model):
         l_cor = (self.cal_c_loss(users_embedding[0], users_embedding[1]) \
                  + self.cal_c_loss(bundles_embedding[0], bundles_embedding[1])) / 2
         loss = loss
-        return pred, loss, l_cor
+        return pred, loss, l_cor * self.beta
         # return pred, loss, torch.zeros(1).to(self.device)[0]
 
     def regularize(self, users_feature, bundles_feature):
