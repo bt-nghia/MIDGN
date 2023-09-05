@@ -13,7 +13,7 @@ import torch_sparse
 from torch_sparse import SparseTensor
 from torch_sparse.mul import mul
 from torch.nn.parameter import  Parameter
-from info_nce import InfoNCE
+# from info_nce import InfoNCE
 import pdb
 def spspdot(indexA, valueA, indexB, valueB, m, k, coalesced=False):
     """Matrix product of two sparse tensors. Both input sparse matrices need to
@@ -94,6 +94,7 @@ class MIDGN(Model):
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
+        self.c_temp = 0.25
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -299,8 +300,8 @@ class MIDGN(Model):
         loss = self.regularize(users_embedding, bundles_embedding)
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
-        l_cor = self.contrast_loss(users_feature[0], users_feature[1]) \
-              + self.contrast_loss(bundles_feature[0], bundles_feature[1])
+        l_cor = (self.cal_c_loss(users_feature[0], users_feature[1]) \
+                 + self.cal_c_loss(bundles_feature[0], bundles_feature[1])) / 2
         loss = loss
         return pred, loss, l_cor
         # return pred, loss, torch.zeros(1).to(self.device)[0]
@@ -500,26 +501,23 @@ class MIDGN(Model):
         # return a (n_factors)-length list of laplacian matrix
         return A_factors, A_factors_t, D_col_factors, D_row_factors
     
-    def contrast_loss(self, eck, vck):
+    def cal_c_loss(self, pos, aug):
         '''
-        Contrastive Loss Function
-        eck: atom_feature 
-        vck: non_atom_feature 
-        pos: same intent 
-        neg: diff intents
+        pos: [bs, :, emb_size]
+        aug: [bs, :, emb_size]
         '''
-        # loss = InfoNCE()
-        eck, vck = normalize(eck, vck)
-        cor_feat = eck @ vck.T
-        iden_mat = torch.eye(cor_feat.shape[0]).to(self.device)
-        one_col = torch.ones(cor_feat.shape[0], 1).to(self.device)
 
-        temp = cor_feat * iden_mat
+        pos = F.normalize(pos, p=2, dim=1)
+        aug = F.normalize(aug, p=2, dim=1)
+        pos_score = torch.sum(pos * aug, dim=1)
+        ttl_score = torch.matmul(pos, aug.permute(1, 0))
 
-        pos = torch.exp(temp @ one_col)
-        neg = torch.sum(torch.exp(cor_feat - temp))
+        pos_score = torch.exp(pos_score / self.c_temp)
+        ttl_score = torch.sum(torch.exp(ttl_score / self.c_temp), axis = 1)
 
-        return torch.mean(-torch.log(pos/neg))/4
-    
+        c_loss = -torch.mean(torch.log(pos_score / ttl_score))
+
+        return c_loss
+
 def normalize(*xs):
     return [None if xs is None else F.normalize(x, p=2, dim=-1) for x in xs]
