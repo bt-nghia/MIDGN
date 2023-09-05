@@ -290,9 +290,6 @@ class MIDGN(Model):
 
     def forward(self, users, bundles):
         users_feature, bundles_feature, atom_bundles_feature, atom_item_feature, atom_user_feature = self.propagate()
-        # print('-----------------------------------------------')
-        # print(users_feature[0].shape, users_feature[1].shape)
-        # print(bundles_feature[0].shape, bundles_feature[1].shape)
         users_embedding = [i[users].expand(- 1, bundles.shape[1], -1) for i in
                            users_feature]  # u_f --> batch_f --> batch_n_f
         bundles_embedding = [i[bundles] for i in bundles_feature]  # b_f --> batch_n_f
@@ -300,8 +297,8 @@ class MIDGN(Model):
         loss = self.regularize(users_embedding, bundles_embedding)
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
-        l_cor = (self.cal_c_loss(users_feature[0], users_feature[1]) \
-                 + self.cal_c_loss(bundles_feature[0], bundles_feature[1])) / 2
+        l_cor = (self.cal_c_loss(users_embedding[0], users_embedding[1]) \
+                 + self.cal_c_loss(bundles_embedding[0], bundles_embedding[1])) / 2
         loss = loss
         return pred, loss, l_cor
         # return pred, loss, torch.zeros(1).to(self.device)[0]
@@ -506,6 +503,8 @@ class MIDGN(Model):
         pos: [bs, :, emb_size]
         aug: [bs, :, emb_size]
         '''
+        pos = pos[:, 0, :]
+        aug = aug[:, 0, :]
 
         pos = F.normalize(pos, p=2, dim=1)
         aug = F.normalize(aug, p=2, dim=1)
