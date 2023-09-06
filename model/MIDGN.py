@@ -96,7 +96,8 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk = 5 # topk users/bundles in contrastive loss
+        self.topk_pos = 10 # topk users/bundles in contrastive loss
+        self.topk_neg = 20
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -299,8 +300,8 @@ class MIDGN(Model):
         loss = self.regularize(users_embedding, bundles_embedding)
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
-        l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], topk=self.topk) \
-                + self.contrastive_loss(bundles_feature[0], bundles_feature[1], topk=self.topk)) / 2
+        l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
+                + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg)) / 2
         loss = loss
         return pred, loss, l_cor * self.beta
         # return pred, loss, torch.zeros(1).to(self.device)[0]
@@ -542,7 +543,7 @@ class MIDGN(Model):
         c2_loss = -torch.mean(torch.log(pos_score / neg_score))
         return c2_loss
     
-    def contrastive_loss(self, eck, vck, topk):
+    def contrastive_loss(self, eck, vck, topk_pos, topk_neg):
         '''
         calculate for all users/bundles
         eck: users/bundles rep before U-B graph [n, embed_dim]
@@ -551,9 +552,9 @@ class MIDGN(Model):
         eck = F.normalize(eck, p=2, dim=1)
         vck = F.normalize(vck, p=2, dim=1)
 
-        sim_mat = torch.matmul(eck, vck.T) / self.c_temp
-        pos_set = torch.topk(sim_mat, k=topk, dim=1)
-        neg_set = torch.topk(sim_mat, k=topk, dim=1, largest=False)
+        sim_mat = torch.matmul(eck, vck.T)
+        pos_set = torch.topk(sim_mat, k=topk_pos, dim=1)
+        neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
 
         pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
         neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
