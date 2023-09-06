@@ -551,7 +551,7 @@ class MIDGN(Model):
         eck = F.normalize(eck, p=2, dim=1)
         vck = F.normalize(vck, p=2, dim=1)
 
-        sim_mat = torch.matmul(eck, vck.T)
+        sim_mat = torch.matmul(eck, vck.T) / self.c_temp
         pos_set = torch.topk(sim_mat, k=topk, dim=1)
         neg_set = torch.topk(sim_mat, k=topk, dim=1, largest=False)
 
