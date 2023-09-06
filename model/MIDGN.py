@@ -96,7 +96,7 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk = 10 # topk users/bundles in contrastive loss
+        self.topk = 40 # topk users/bundles in contrastive loss
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
