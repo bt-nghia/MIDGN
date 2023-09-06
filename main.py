@@ -44,11 +44,11 @@ def main():
             dataset.get_dataset(CONFIG['path'], CONFIG['dataset_name'], task=CONFIG['task'])
 
     train_loader = DataLoader(bundle_train_data, 65536, True,
-                              num_workers=16, pin_memory=True)
+                              num_workers=8, pin_memory=True)
     eval_loader = DataLoader(bundle_eval_data, 4096, False,
-                             num_workers=16, pin_memory=True)
+                             num_workers=8, pin_memory=True)
     test_loader = DataLoader(bundle_test_data, 4096, False,
-                             num_workers=16, pin_memory=True)
+                             num_workers=8, pin_memory=True)
 
     #  pretrain
     if 'pretrain' in CONFIG:

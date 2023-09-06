@@ -13,7 +13,7 @@ import torch_sparse
 from torch_sparse import SparseTensor
 from torch_sparse.mul import mul
 from torch.nn.parameter import  Parameter
-# from info_nce import InfoNCE
+
 import pdb
 def spspdot(indexA, valueA, indexB, valueB, m, k, coalesced=False):
     """Matrix product of two sparse tensors. Both input sparse matrices need to
@@ -96,6 +96,7 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
+        self.topk = 10 # topk users/bundles in contrastive loss
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -247,9 +248,9 @@ class MIDGN(Model):
     def propagate(self):
 
         # bi_value_sparse,ui_value_sparse=[],[]
-        ub_indices = torch.tensor([self.ub_graph_h, self.ub_graph_t], dtype=torch.long).to(self.device)
-        bi_indices = torch.tensor([self.bi_graph_h, self.bi_graph_t], dtype=torch.long).to(self.device)
-        ui_indices = torch.tensor([self.ui_graph_h, self.ui_graph_t], dtype=torch.long).to(self.device)
+        # ub_indices = torch.tensor(np.array([self.ub_graph_h, self.ub_graph_t]), dtype=torch.long).to(self.device)
+        # bi_indices = torch.tensor(np.array([self.bi_graph_h, self.bi_graph_t]), dtype=torch.long).to(self.device)
+        # ui_indices = torch.tensor(np.array([self.ui_graph_h, self.ui_graph_t]), dtype=torch.long).to(self.device)
 
         atom_bundles_feature, atom_item_feature, self.bi_avalues = self._create_star_routing_embed_with_p(self.bi_graph_h,
                                                                                                      self.bi_graph_t,
@@ -298,8 +299,8 @@ class MIDGN(Model):
         loss = self.regularize(users_embedding, bundles_embedding)
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
-        l_cor = (self.cal_c_loss(users_embedding[0], users_embedding[1]) \
-                 + self.cal_c_loss(bundles_embedding[0], bundles_embedding[1])) / 2
+        l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], topk=self.topk) \
+                + self.contrastive_loss(bundles_feature[0], bundles_feature[1], topk=self.topk)) / 2
         loss = loss
         return pred, loss, l_cor * self.beta
         # return pred, loss, torch.zeros(1).to(self.device)[0]
@@ -517,6 +518,47 @@ class MIDGN(Model):
 
         c_loss = -torch.mean(torch.log(pos_score / ttl_score))
 
+        return c_loss
+    
+    def cal_c2_loss(self, pos, aug):
+        '''
+        eliminate pos index in aug
+        pos: [bs, :, emb_size]
+        aug: [bs, :, emb_size]
+        '''
+        pos = pos[:, 0, :]
+        aug = aug[:, 0, :]
+
+        pos = F.normalize(pos, p=2, dim=1) #[bs, emb_dim]
+        aug = F.normalize(aug, p=2, dim=1) #[bs, emb_dim]
+
+        sim_mat = torch.matmul(pos, aug.permute(1, 0)) #[bs, bs]
+        pos_score = sim_mat * torch.eye(sim_mat.shape[0]) #[bs, bs]
+        neg_score = sim_mat - pos_score #[bs, bs]
+
+        pos_score = torch.exp(pos_score @ torch.ones(sim_mat.shape[0], 1)) #[bs, 1]
+        neg = torch.sum(torch.exp(neg_score) - 1) #[bs, 1] -1 due to e^0==1
+
+        c2_loss = -torch.mean(torch.log(pos_score / neg_score))
+        return c2_loss
+    
+    def contrastive_loss(self, eck, vck, topk):
+        '''
+        calculate for all users/bundles
+        eck: users/bundles rep before U-B graph [n, embed_dim]
+        vck: users/bundles rep after U-B graph [n, embed_dim]
+        '''
+        eck = F.normalize(eck, p=2, dim=1)
+        vck = F.normalize(vck, p=2, dim=1)
+
+        sim_mat = torch.matmul(eck, vck.T)
+        pos_set = torch.topk(sim_mat, k=topk, dim=1)
+        neg_set = torch.topk(sim_mat, k=topk, dim=1, largest=False)
+
+        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
+        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
+
+        c_loss = -torch.mean(torch.log(pos_score / neg_score))
         return c_loss
 
 def normalize(*xs):
