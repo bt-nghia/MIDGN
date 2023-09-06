@@ -259,7 +259,7 @@ class MIDGN(Model):
                                                                                                      self.num_bundles,
                                                                                                      self.num_items,
                                                                                                      self.bi_graph_shape,
-                                                                                                     n_factors=1,
+                                                                                                     n_factors=4,
                                                                                                      pick_=False)
 
         atom_user_feature, atom_item_feature2, self.ui_avalues = self._create_star_routing_embed_with_p(self.ui_graph_h,
