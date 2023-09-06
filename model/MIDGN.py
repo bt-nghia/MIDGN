@@ -96,7 +96,7 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk = 40 # topk users/bundles in contrastive loss
+        self.topk = 5 # topk users/bundles in contrastive loss
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -259,7 +259,7 @@ class MIDGN(Model):
                                                                                                      self.num_bundles,
                                                                                                      self.num_items,
                                                                                                      self.bi_graph_shape,
-                                                                                                     n_factors=4,
+                                                                                                     n_factors=1,
                                                                                                      pick_=False)
 
         atom_user_feature, atom_item_feature2, self.ui_avalues = self._create_star_routing_embed_with_p(self.ui_graph_h,
