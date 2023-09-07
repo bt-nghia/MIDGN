@@ -529,7 +529,7 @@ class MIDGN(Model):
         # neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
 
         '''
-        eliminate overlap pairs
+        eliminate overlap pairs in pos/neg sets
         '''
         pos_ids = torch.cat(pos_set.indices.split(1, dim=1), dim=0)
         neg_ids = torch.cat(neg_set.indices.split(1, dim=1), dim=0)
@@ -543,13 +543,13 @@ class MIDGN(Model):
 
         pos_idx, neg_idx = pos_pairs.T, neg_pairs.T
         pos_mask_val, neg_mask_val = torch.ones(pos_idx.shape[1]), torch.ones(neg_idx.shape[1])
-        pos_mask, neg_mask = torch.sparse_coo_tensor(pos_idx, pos_mask_val, sim_mat.shape), \
-                             torch.sparse_coo_tensor(neg_idx, neg_mask_val, sim_mat.shape)
-        pos_mask = pos_mask.to_dense()
-        neg_mask = neg_mask.to_dense()
+        pos_mask, neg_mask = torch.sparse_coo_tensor(pos_idx, pos_mask_val, sim_mat.shape).to_dense(), \
+                             torch.sparse_coo_tensor(neg_idx, neg_mask_val, sim_mat.shape).to_dense()
+        
+        overlap_pos_neg = pos_mask * neg_mask
 
-        pos_sim = sim_mat * pos_mask
-        neg_sim = sim_mat * neg_mask
+        pos_sim = sim_mat * (pos_mask - overlap_pos_neg)
+        neg_sim = sim_mat * (neg_mask - overlap_pos_neg)
 
         pos_score = torch.sum(torch.exp(pos_sim), dim=1)
         neg_score = torch.sum(torch.exp(neg_sim), dim=1)
