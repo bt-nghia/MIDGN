@@ -96,8 +96,8 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk_pos = 10 # topk users/bundles in contrastive loss
-        self.topk_neg = 30
+        self.topk_pos = 20 # topk users/bundles in contrastive loss
+        self.topk_neg = 40
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -501,53 +501,53 @@ class MIDGN(Model):
         # return a (n_factors)-length list of laplacian matrix
         return A_factors, A_factors_t, D_col_factors, D_row_factors
     
-    def cal_c_loss(self, pos, aug):
-        '''
-        pos: [bs, :, emb_size]
-        aug: [bs, :, emb_size]
-        '''
-        pos = pos[:, 0, :]
-        aug = aug[:, 0, :]
+    # def cal_c_loss(self, pos, aug):
+    #     '''
+    #     pos: [bs, :, emb_size]
+    #     aug: [bs, :, emb_size]
+    #     '''
+    #     pos = pos[:, 0, :]
+    #     aug = aug[:, 0, :]
 
-        pos = F.normalize(pos, p=2, dim=1)
-        aug = F.normalize(aug, p=2, dim=1)
-        pos_score = torch.sum(pos * aug, dim=1)
-        ttl_score = torch.matmul(pos, aug.permute(1, 0))
+    #     pos = F.normalize(pos, p=2, dim=1)
+    #     aug = F.normalize(aug, p=2, dim=1)
+    #     pos_score = torch.sum(pos * aug, dim=1)
+    #     ttl_score = torch.matmul(pos, aug.permute(1, 0))
 
-        pos_score = torch.exp(pos_score / self.c_temp)
-        ttl_score = torch.sum(torch.exp(ttl_score / self.c_temp), axis = 1)
+    #     pos_score = torch.exp(pos_score / self.c_temp)
+    #     ttl_score = torch.sum(torch.exp(ttl_score / self.c_temp), axis = 1)
 
-        c_loss = -torch.mean(torch.log(pos_score / ttl_score))
+    #     c_loss = -torch.mean(torch.log(pos_score / ttl_score))
 
-        return c_loss
+    #     return c_loss
     
-    def cal_c2_loss(self, pos, aug):
-        '''
-        eliminate pos index in aug
-        pos: [bs, :, emb_size]
-        aug: [bs, :, emb_size]
-        '''
-        pos = pos[:, 0, :]
-        aug = aug[:, 0, :]
+    # def cal_c2_loss(self, pos, aug):
+    #     '''
+    #     eliminate pos index in aug
+    #     pos: [bs, :, emb_size]
+    #     aug: [bs, :, emb_size]
+    #     '''
+    #     pos = pos[:, 0, :]
+    #     aug = aug[:, 0, :]
 
-        pos = F.normalize(pos, p=2, dim=1) #[bs, emb_dim]
-        aug = F.normalize(aug, p=2, dim=1) #[bs, emb_dim]
+    #     pos = F.normalize(pos, p=2, dim=1) #[bs, emb_dim]
+    #     aug = F.normalize(aug, p=2, dim=1) #[bs, emb_dim]
 
-        sim_mat = torch.matmul(pos, aug.permute(1, 0)) #[bs, bs]
-        pos_score = sim_mat * torch.eye(sim_mat.shape[0]) #[bs, bs]
-        neg_score = sim_mat - pos_score #[bs, bs]
+    #     sim_mat = torch.matmul(pos, aug.permute(1, 0)) #[bs, bs]
+    #     pos_score = sim_mat * torch.eye(sim_mat.shape[0]) #[bs, bs]
+    #     neg_score = sim_mat - pos_score #[bs, bs]
 
-        pos_score = torch.exp(pos_score @ torch.ones(sim_mat.shape[0], 1)) #[bs, 1]
-        neg = torch.sum(torch.exp(neg_score) - 1) #[bs, 1] -1 due to e^0==1
+    #     pos_score = torch.exp(pos_score @ torch.ones(sim_mat.shape[0], 1)) #[bs, 1]
+    #     neg = torch.sum(torch.exp(neg_score) - 1) #[bs, 1] -1 due to e^0==1
 
-        c2_loss = -torch.mean(torch.log(pos_score / neg_score))
-        return c2_loss
+    #     c2_loss = -torch.mean(torch.log(pos_score / neg_score))
+    #     return c2_loss
     
     def contrastive_loss(self, eck, vck, topk_pos, topk_neg):
         '''
         calculate for all users/bundles
-        eck: users/bundles rep before U-B graph [n, embed_dim]
-        vck: users/bundles rep after U-B graph [n, embed_dim]
+        eck: users/bundles rep Item level [n, embed_dim]
+        vck: users/bundles rep Bundle level [n, embed_dim]
         '''
         eck = F.normalize(eck, p=2, dim=1)
         vck = F.normalize(vck, p=2, dim=1)
