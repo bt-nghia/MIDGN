@@ -96,8 +96,8 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk_pos = 5 # topk users/bundles in contrastive loss
-        self.topk_neg = 10
+        self.topk_pos = 10 # topk users/bundles in contrastive loss
+        self.topk_neg = 20
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -205,6 +205,15 @@ class MIDGN(Model):
                 pretrain['items_feature'])
             self.bundles_feature.data = F.normalize(
                 pretrain['bundles_feature'])
+            
+        self.n_users, self.n_items, self.n_bundles = self.ui_graph.shape[0], self.ui_graph.shape[1], self.bi_graph.shape[0]
+        self.pos_u_ids, self.neg_u_ids = torch.arange(0, self.n_users).view(1, -1)\
+                                        .expand(self.topk_pos + self.topk_neg, self.n_users).flatten().view(-1, 1)\
+                                        .split([self.topk_pos * self.n_users, self.topk_neg * self.n_users])
+        self.pos_b_ids, self.neg_b_ids = torch.arange(0, self.n_bundles).view(1, -1)\
+                                        .expand(self.topk_pos + self.topk_neg, self.n_bundles).flatten().view(-1, 1)\
+                                        .split([self.topk_pos * self.n_bundles, self.topk_neg * self.n_bundles])
+        
 
     def one_propagate(self, graph, A_feature, B_feature, dnns):
         # node dropout on graph
@@ -301,7 +310,7 @@ class MIDGN(Model):
         items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
             torch.int64).to(self.device)
         l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
-                + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg)) / 2
+                + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
         loss = loss
         return pred, loss, l_cor * self.beta
         # return pred, loss, torch.zeros(1).to(self.device)[0]
@@ -501,53 +510,12 @@ class MIDGN(Model):
         # return a (n_factors)-length list of laplacian matrix
         return A_factors, A_factors_t, D_col_factors, D_row_factors
     
-    # def cal_c_loss(self, pos, aug):
-    #     '''
-    #     pos: [bs, :, emb_size]
-    #     aug: [bs, :, emb_size]
-    #     '''
-    #     pos = pos[:, 0, :]
-    #     aug = aug[:, 0, :]
-
-    #     pos = F.normalize(pos, p=2, dim=1)
-    #     aug = F.normalize(aug, p=2, dim=1)
-    #     pos_score = torch.sum(pos * aug, dim=1)
-    #     ttl_score = torch.matmul(pos, aug.permute(1, 0))
-
-    #     pos_score = torch.exp(pos_score / self.c_temp)
-    #     ttl_score = torch.sum(torch.exp(ttl_score / self.c_temp), axis = 1)
-
-    #     c_loss = -torch.mean(torch.log(pos_score / ttl_score))
-
-    #     return c_loss
-    
-    # def cal_c2_loss(self, pos, aug):
-    #     '''
-    #     eliminate pos index in aug
-    #     pos: [bs, :, emb_size]
-    #     aug: [bs, :, emb_size]
-    #     '''
-    #     pos = pos[:, 0, :]
-    #     aug = aug[:, 0, :]
-
-    #     pos = F.normalize(pos, p=2, dim=1) #[bs, emb_dim]
-    #     aug = F.normalize(aug, p=2, dim=1) #[bs, emb_dim]
-
-    #     sim_mat = torch.matmul(pos, aug.permute(1, 0)) #[bs, bs]
-    #     pos_score = sim_mat * torch.eye(sim_mat.shape[0]) #[bs, bs]
-    #     neg_score = sim_mat - pos_score #[bs, bs]
-
-    #     pos_score = torch.exp(pos_score @ torch.ones(sim_mat.shape[0], 1)) #[bs, 1]
-    #     neg = torch.sum(torch.exp(neg_score) - 1) #[bs, 1] -1 due to e^0==1
-
-    #     c2_loss = -torch.mean(torch.log(pos_score / neg_score))
-    #     return c2_loss
-    
-    def contrastive_loss(self, eck, vck, topk_pos, topk_neg):
+    def contrastive_loss(self, eck, vck, topk_pos, topk_neg, usr=True, threshold=5e-1):
         '''
         calculate for all users/bundles
-        eck: users/bundles rep Item level [n, embed_dim]
-        vck: users/bundles rep Bundle level [n, embed_dim]
+        eck: users/bundles rep bf graph [n, embed_dim]
+        vck: users/bundles rep af graph [n, embed_dim]
+        threshold => sim_value > threshold belong to pos_set
         '''
         eck = F.normalize(eck, p=2, dim=1)
         vck = F.normalize(vck, p=2, dim=1)
@@ -555,12 +523,36 @@ class MIDGN(Model):
         sim_mat = torch.matmul(eck, vck.T)
         pos_set = torch.topk(sim_mat, k=topk_pos, dim=1)
         neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
+        
+        # contain overlap pairs
+        # pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
+        # neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
 
-        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
-        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
+        '''
+        eliminate overlap pairs
+        '''
+        pos_ids = torch.cat(pos_set.indices.split(1, dim=1), dim=0)
+        neg_ids = torch.cat(neg_set.indices.split(1, dim=1), dim=0)
 
+        if usr:
+            pos_pairs = torch.cat([self.pos_u_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
+            neg_pairs = torch.cat([self.neg_u_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
+        else:
+            pos_pairs = torch.cat([self.pos_b_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
+            neg_pairs = torch.cat([self.neg_b_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
+
+        pos_idx, neg_idx = pos_pairs.T, neg_pairs.T
+        pos_mask_val, neg_mask_val = torch.ones(pos_idx.shape[1]), torch.ones(neg_idx.shape[1])
+        pos_mask, neg_mask = torch.sparse_coo_tensor(pos_idx, pos_mask_val, sim_mat.shape), \
+                             torch.sparse_coo_tensor(neg_idx, neg_mask_val, sim_mat.shape)
+        pos_mask = pos_mask.to_dense()
+        neg_mask = neg_mask.to_dense()
+
+        pos_sim = sim_mat * pos_mask
+        neg_sim = sim_mat * neg_mask
+
+        pos_score = torch.sum(torch.exp(pos_sim), dim=1)
+        neg_score = torch.sum(torch.exp(neg_sim), dim=1)
         c_loss = -torch.mean(torch.log(pos_score / neg_score))
-        return c_loss
 
-def normalize(*xs):
-    return [None if xs is None else F.normalize(x, p=2, dim=-1) for x in xs]
+        return c_loss
