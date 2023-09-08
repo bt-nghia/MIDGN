@@ -526,8 +526,8 @@ class MIDGN(Model):
         neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
         
         # contain overlap pairs
-        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
-        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
+        pos_score = torch.sum(torch.exp(pos_set.values * (pos_set.values > threshold)), dim=1)
+        neg_score = torch.sum(torch.exp(neg_set.values * (pos_set.values < threshold)), dim=1)
 
         '''
         eliminate overlap pairs in pos/neg sets
