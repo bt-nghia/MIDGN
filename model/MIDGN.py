@@ -96,7 +96,7 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk_pos = 10 # topk users/bundles in contrastive loss
+        self.topk_pos = 20 # topk users/bundles in contrastive loss
         self.topk_neg = 20
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
@@ -121,6 +121,7 @@ class MIDGN(Model):
         self.ui_mask = ui_graph_e[ui_graph_coo.row, ui_graph_coo.col]
         self.ui_e_mask = ui_graph[ui_graph_e_coo.row, ui_graph_e_coo.col]
         self.bi_graph, self.ui_graph = bi_graph, ui_graph
+        # self.ubi_graph = self.get_ubi(to_tensor(ub_graph).to_dense(), to_tensor(bi_graph).to_dense())
         if ui_graph.shape == (self.num_users, self.num_items):
             # add self-loop
             atom_graph = sp.bmat([[sp.identity(ui_graph.shape[0]), ui_graph],
@@ -525,34 +526,54 @@ class MIDGN(Model):
         neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
         
         # contain overlap pairs
-        # pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
-        # neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
+        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
+        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
 
         '''
         eliminate overlap pairs in pos/neg sets
         '''
-        pos_ids = torch.cat(pos_set.indices.split(1, dim=1), dim=0)
-        neg_ids = torch.cat(neg_set.indices.split(1, dim=1), dim=0)
+        # pos_ids = torch.cat(pos_set.indices.split(1, dim=1), dim=0)
+        # neg_ids = torch.cat(neg_set.indices.split(1, dim=1), dim=0)
 
-        if usr:
-            pos_pairs = torch.cat([self.pos_u_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
-            neg_pairs = torch.cat([self.neg_u_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
-        else:
-            pos_pairs = torch.cat([self.pos_b_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
-            neg_pairs = torch.cat([self.neg_b_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
+        # if usr:
+        #     pos_pairs = torch.cat([self.pos_u_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
+        #     neg_pairs = torch.cat([self.neg_u_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
+        # else:
+        #     pos_pairs = torch.cat([self.pos_b_ids, pos_ids],dim=1).sort(dim=1).values.unique(dim=0)
+        #     neg_pairs = torch.cat([self.neg_b_ids, neg_ids],dim=1).sort(dim=1).values.unique(dim=0)
 
-        pos_idx, neg_idx = pos_pairs.T, neg_pairs.T
-        pos_mask_val, neg_mask_val = torch.ones(pos_idx.shape[1]), torch.ones(neg_idx.shape[1])
-        pos_mask, neg_mask = torch.sparse_coo_tensor(pos_idx, pos_mask_val, sim_mat.shape).to_dense(), \
-                             torch.sparse_coo_tensor(neg_idx, neg_mask_val, sim_mat.shape).to_dense()
+        # pos_idx, neg_idx = pos_pairs.T, neg_pairs.T
+        # pos_mask_val, neg_mask_val = torch.ones(pos_idx.shape[1]), torch.ones(neg_idx.shape[1])
+        # pos_mask, neg_mask = torch.sparse_coo_tensor(pos_idx, pos_mask_val, sim_mat.shape).to_dense(), \
+        #                      torch.sparse_coo_tensor(neg_idx, neg_mask_val, sim_mat.shape).to_dense()
         
-        overlap_pos_neg = pos_mask * neg_mask
+        # overlap_pos_neg = pos_mask * neg_mask
 
-        pos_sim = sim_mat * (pos_mask - overlap_pos_neg)
-        neg_sim = sim_mat * (neg_mask - overlap_pos_neg)
+        # pos_sim = sim_mat * (pos_mask - overlap_pos_neg)
+        # neg_sim = sim_mat * (neg_mask - overlap_pos_neg)
 
-        pos_score = torch.sum(torch.exp(pos_sim), dim=1)
-        neg_score = torch.sum(torch.exp(neg_sim), dim=1)
+        # pos_score = torch.sum(torch.exp(pos_sim), dim=1)
+        # neg_score = torch.sum(torch.exp(neg_sim), dim=1)
         c_loss = -torch.mean(torch.log(pos_score / neg_score))
 
         return c_loss
+    
+    def get_ubi_weighted(self, ub, bi):
+        '''
+        each cell i-j is the number of interactions user i interact with item j through bundles
+        '''
+        temp = ub.view(-1, 1, ub.shape[1]).expand(-1, bi.shape[1] ,-1).transpose(1, 2)
+        ubi = (temp * bi).sum(dim=1)
+        return ubi
+    
+    def get_ubi(self, ub, ui):
+        '''
+        Co-occurent matrix of users and items through bundles
+        '''
+        coo_ubi_weight = self.get_ubi_weighted(ub, ui).to_sparse_coo()
+        coo_ubi_weight_val = torch.ones_like(coo_ubi_weight.values)
+        coo_ubi_weight_idx = coo_ubi_weight.indices
+        coo_ubi = torch.sparse_coo_tensor(coo_ubi_weight_idx, \
+                                        coo_ubi_weight_val, \
+                                        coo_ubi_weight.shape).to_dense()
+        return coo_ubi
