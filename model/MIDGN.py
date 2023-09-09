@@ -96,8 +96,8 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk_pos = 10 # topk users/bundles in contrastive loss
-        self.topk_neg = 20
+        self.topk_pos = 30 # topk users/bundles in contrastive loss
+        self.topk_neg = 30
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
@@ -526,8 +526,11 @@ class MIDGN(Model):
         neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
         
         # contain overlap pairs
-        pos_score = torch.sum(torch.exp(pos_set.values * (pos_set.values > threshold)), dim=1)
-        neg_score = torch.sum(torch.exp(neg_set.values * (neg_set.values < threshold)), dim=1)
+        pos_thres_mask = pos_set.values > threshold
+        neg_thres_mask = neg_set.values < threshold
+
+        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
+        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
 
         '''
         eliminate overlap pairs in pos/neg sets
