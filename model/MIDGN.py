@@ -96,7 +96,7 @@ class MIDGN(Model):
         self.pick_level = 1e10
         self.c_temp = 0.25
         self.beta = 0.04
-        self.topk_pos = 40 # topk users/bundles in contrastive loss
+        self.topk_pos = 20 # topk users/bundles in contrastive loss
         self.topk_neg = 20
         self.device = device
         emb_dim = int(int(self.embedding_size) / self.n_factors)
@@ -127,9 +127,7 @@ class MIDGN(Model):
         # user-item graph (items from bundles users had interacted with)
         ubi_graph = self.get_ubi_non_weighted(ub_sparse, bi_sparse)
         # item-item graph each cell is the number of times item i and j appeared at a same bundle 
-        ii_graph = bi_sparse.T @ bi_sparse 
-
-        print(ii_graph.values().shape)
+        self.ii_graph = bi_sparse.T @ bi_sparse 
 
         if ui_graph.shape == (self.num_users, self.num_items):
             # add self-loop
@@ -240,17 +238,12 @@ class MIDGN(Model):
                                         .expand(self.topk_pos + self.topk_neg, self.num_bundles).flatten().view(-1, 1)\
                                         .split([self.topk_pos * self.num_bundles, self.topk_neg * self.num_bundles])
         
-        self.pos_item_set = []
-        self.neg_item_set = []
+        ii_dense = self.ii_graph.to_dense()        
+        self.pos_item_set = [i.to_sparse_coo().indices().view(-1, ) for i in ii_dense]
+        self.neg_item_set = [i.to_sparse_coo().indices().view(-1, ) for i in (ii_dense==0)]
 
-        for i in range(0, self.num_items):
-            pos_set = []
-            neg_set = []
-
-
-
-            self.pos_item_set.append(pos_set)
-            self.neg_item_set.append(neg_set)
+        del ii_dense
+        
 
     def one_propagate(self, graph, A_feature, B_feature, dnns):
         # node dropout on graph
@@ -349,8 +342,9 @@ class MIDGN(Model):
         l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
                 + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
         loss = loss
-        return pred, loss, l_cor * self.beta
-        # return pred, loss, torch.zeros(1).to(self.device)[0]
+        ii_loss = self.cal_bpr_item(self.ii_graph)
+        print(ii_loss)
+        return pred, loss, l_cor * self.beta + ii_loss # side loss
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
@@ -639,11 +633,12 @@ class MIDGN(Model):
         id_set = torch.randint(0, ii_index.shape[1], (batch_size, ))
         batch_idx = ii_index.T[id_set].T.tolist()
         
-        
+        neg_ids = []
         for i in batch_idx[0]:
-            neg_id = np.random.randint(0, self.num_items, 1)
-            while np.isin(neg_id, pos_item_set[i]):
-                neg_id = np.random.randint(0, self.num_items, 1)
+            if self.neg_item_set[i].shape == (1, 0):
+                neg_id = 0
+            else:
+                neg_id = np.random.choice(self.neg_item_set[i])
             neg_ids.append(neg_id)
 
         batch_idx.append(neg_ids)
@@ -653,9 +648,7 @@ class MIDGN(Model):
         '''
         calculate BPR loss for item-item
         '''
-        mask = torch.tril(torch.ones(ii_graph.shape), -1)
-        
-        cur_id, pos_id, neg_id = self.load_ii_pairs(2048, None)
+        cur_id, pos_id, neg_id = self.load_ii_pairs(4096, ii_graph.indices())
         cur_feat = self.items_feature[cur_id]
         pos_feat = self.items_feature[pos_id]
         neg_feat = self.items_feature[neg_id]
