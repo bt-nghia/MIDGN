@@ -243,7 +243,7 @@ class MIDGN(Model):
         self.neg_item_set = [i.to_sparse_coo().indices().view(-1, ) for i in (ii_dense==0)]
 
         del ii_dense
-        
+        self.corel_items = self.cal_C_item(ii_dense)        
 
     def one_propagate(self, graph, A_feature, B_feature, dnns):
         # node dropout on graph
@@ -670,7 +670,7 @@ class MIDGN(Model):
     def cal_C_item(self, ii_mat):
         val = torch.sum(ii_mat, dim=1).view(-1, )
         idx = [list(range(0, ii_mat.shape[0])),
-               list(range(0, ii_mat.shape[0]))]
+               list(range(0, ii_mat.shape[0]))] # iden matrix
         Deg_mat = torch.sparse_coo_tensor(idx, val, ii_mat.shape)
         normD = 1/torch.sqrt(Deg_mat)
         return normD @ ii_mat @ normD
