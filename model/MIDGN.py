@@ -342,7 +342,8 @@ class MIDGN(Model):
         l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
                 + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
         loss = loss
-        ii_loss = self.cal_bpr_item(self.ii_graph)
+        ii_loss = 0
+        ii_loss = self.cal_bpr_item(self.ii_graph, atom_item_feature)
         print(ii_loss)
         return pred, loss, l_cor * self.beta + ii_loss # side loss
 
@@ -644,14 +645,14 @@ class MIDGN(Model):
         batch_idx.append(neg_ids)
         return batch_idx
     
-    def cal_bpr_item(self, ii_graph, mode='mean'):
+    def cal_bpr_item(self, ii_graph, item_feat, mode='mean'):
         '''
         calculate BPR loss for item-item
         '''
         cur_id, pos_id, neg_id = self.load_ii_pairs(4096, ii_graph.indices())
-        cur_feat = self.items_feature[cur_id]
-        pos_feat = self.items_feature[pos_id]
-        neg_feat = self.items_feature[neg_id]
+        cur_feat = item_feat[cur_id]
+        pos_feat = item_feat[pos_id]
+        neg_feat = item_feat[neg_id]
 
         pos_score = cur_feat @ pos_feat.T
         neg_score = cur_feat @ neg_feat.T
@@ -663,5 +664,13 @@ class MIDGN(Model):
         elif mode=='sum':
             loss_bpr = torch.sum(loss_bpr)
         else:
-            raise ValueError(r"invalid mode i-i bpr")
+            raise ValueError(r"invalid mode i-i bpr")   
         return loss_bpr
+    
+    def cal_C_item(self, ii_mat):
+        val = torch.sum(ii_mat, dim=1).view(-1, )
+        idx = [list(range(0, ii_mat.shape[0])),
+               list(range(0, ii_mat.shape[0]))]
+        Dmat = torch.sparse_coo_tensor(idx, val, ii_mat.shape)
+        sqrtD = torch.sqrt(Dmat)
+        return sqrtD @ ii_mat @ sqrtD
