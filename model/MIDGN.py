@@ -12,7 +12,7 @@ from config import CONFIG
 import torch_sparse
 from torch_sparse import SparseTensor
 from torch_sparse.mul import mul
-from torch.nn.parameter import  Parameter
+from torch.nn.parameter import Parameter
 
 import pdb
 def spspdot(indexA, valueA, indexB, valueB, m, k, coalesced=False):
@@ -121,7 +121,16 @@ class MIDGN(Model):
         self.ui_mask = ui_graph_e[ui_graph_coo.row, ui_graph_coo.col]
         self.ui_e_mask = ui_graph[ui_graph_e_coo.row, ui_graph_e_coo.col]
         self.bi_graph, self.ui_graph = bi_graph, ui_graph
-        # self.ubi_graph = self.get_ubi(to_tensor(ub_graph).to_dense(), to_tensor(bi_graph).to_dense())
+        ub_sparse = torch.sparse_coo_tensor(ub_indices, ub_values, ub_graph.shape)
+        bi_sparse = torch.sparse_coo_tensor(bi_indices, bi_values, bi_graph.shape)
+
+        # user-item graph (items from bundles users had interacted with)
+        ubi_graph = self.get_ubi_non_weighted(ub_sparse, bi_sparse)
+        # item-item graph each cell is the number of times item i and j appeared at a same bundle 
+        ii_graph = bi_sparse.T @ bi_sparse 
+
+        print(ii_graph.values().shape)
+
         if ui_graph.shape == (self.num_users, self.num_items):
             # add self-loop
             atom_graph = sp.bmat([[sp.identity(ui_graph.shape[0]), ui_graph],
@@ -138,6 +147,7 @@ class MIDGN(Model):
         self.bi_atom_graph = to_tensor(laplace_transform(atom_graph)).to(device)
         self.dnns_atom = nn.ModuleList([nn.Linear(
             self.embedding_size, self.embedding_size) for l in range(self.num_layers)])
+        
         if bi_graph.shape == (self.num_bundles, self.num_items):
             tmp = bi_graph.tocoo()
             self.bi_graph_h = list(tmp.row)
@@ -145,7 +155,6 @@ class MIDGN(Model):
             self.bi_graph_shape = bi_graph.shape
         else:
             raise ValueError(r"raw_graph's shape is wrong")
-        # self.bi_graph = to_tensor(laplace_transform(bi_graph)).to(device)
 
         if ui_graph.shape == (self.num_users, self.num_items):
             # add self-loop
@@ -156,6 +165,7 @@ class MIDGN(Model):
             self.ui_graph_shape = ui_graph.shape
         else:
             raise ValueError(r"raw_graph's shape is wrong")
+        
         if ub_graph.shape == (self.num_users, self.num_bundles):
             # add self-loop
             tmp = ub_graph.tocoo()
@@ -165,8 +175,24 @@ class MIDGN(Model):
             self.ub_graph_shape = ub_graph.shape
         else:
             raise ValueError(r"raw_graph's shape is wrong")
-        # self.ui_graph = to_tensor(laplace_transform(ui_graph)).to(device)
-        print('finish generating bi, ui graph')
+        
+        # if ubi_graph.shape == (self.num_users, self.num_items):
+        #     tmp = ubi_graph
+        #     self.ubi_graph_v = ubi_graph.values().to(device)
+        #     self.ubi_graph_h = list(ubi_graph.indices()[0])
+        #     self.ubi_graph_t = list(ubi_graph.indices()[1])
+        #     self.ubi_graph_shape = ubi_graph.shape
+        # else:
+        #     raise ValueError(r"ubi graph shape is wrong")
+        
+        # if ii_graph.shape == (self.num_items, self.num_items):
+        #     self.ii_graph_v = ii_graph.values().to(device)
+        #     self.ii_graph_h = list(ii_graph.indices()[0])
+        #     self.ii_graph_t = list(ii_graph.indices()[1])
+        #     self.ii_graph_shape = ii_graph.shape
+        # else:
+        #     raise ValueError(r"ii graph shape is wrong")
+        # print('finish generating bi, ui graph')
 
         #  deal with weights
         bi_norm = sp.diags(1 / (np.sqrt((bi_graph.multiply(bi_graph)).sum(axis=1).A.ravel()) + 1e-8)) @ bi_graph
@@ -207,14 +233,24 @@ class MIDGN(Model):
             self.bundles_feature.data = F.normalize(
                 pretrain['bundles_feature'])
             
-        self.n_users, self.n_items, self.n_bundles = self.ui_graph.shape[0], self.ui_graph.shape[1], self.bi_graph.shape[0]
-        self.pos_u_ids, self.neg_u_ids = torch.arange(0, self.n_users).view(1, -1)\
-                                        .expand(self.topk_pos + self.topk_neg, self.n_users).flatten().view(-1, 1)\
-                                        .split([self.topk_pos * self.n_users, self.topk_neg * self.n_users])
-        self.pos_b_ids, self.neg_b_ids = torch.arange(0, self.n_bundles).view(1, -1)\
-                                        .expand(self.topk_pos + self.topk_neg, self.n_bundles).flatten().view(-1, 1)\
-                                        .split([self.topk_pos * self.n_bundles, self.topk_neg * self.n_bundles])
+        self.pos_u_ids, self.neg_u_ids = torch.arange(0, self.num_users).view(1, -1)\
+                                        .expand(self.topk_pos + self.topk_neg, self.num_users).flatten().view(-1, 1)\
+                                        .split([self.topk_pos * self.num_users, self.topk_neg * self.num_users])
+        self.pos_b_ids, self.neg_b_ids = torch.arange(0, self.num_bundles).view(1, -1)\
+                                        .expand(self.topk_pos + self.topk_neg, self.num_bundles).flatten().view(-1, 1)\
+                                        .split([self.topk_pos * self.num_bundles, self.topk_neg * self.num_bundles])
         
+        self.pos_item_set = []
+        self.neg_item_set = []
+
+        for i in range(0, self.num_items):
+            pos_set = []
+            neg_set = []
+
+
+
+            self.pos_item_set.append(pos_set)
+            self.neg_item_set.append(neg_set)
 
     def one_propagate(self, graph, A_feature, B_feature, dnns):
         # node dropout on graph
@@ -560,23 +596,79 @@ class MIDGN(Model):
         c_loss = -torch.mean(torch.log(pos_score / neg_score))
 
         return c_loss
-    
+
     def get_ubi_weighted(self, ub, bi):
         '''
-        each cell i-j is the number of interactions user i interact with item j through bundles
+        ub : user-bunlde coo-graph
+        bi : bundle-item coo-graph
+
+        return: ubi user-item coo-graph through bundle 
+        each cell [i,j] is the time user i interact with item j
         '''
-        temp = ub.view(-1, 1, ub.shape[1]).expand(-1, bi.shape[1] ,-1).transpose(1, 2)
-        ubi = (temp * bi).sum(dim=1)
+        ubi = ub @ bi
         return ubi
+
+    def get_ubi_non_weighted(self, ub, bi):
+        '''
+        ub : user-bunlde coo-graph
+        bi : bundle-item coo-graph
+
+        return: ubi user-item coo-graph through bundle 
+        each cell [i,j] == 0 or 1
+        '''
+        temp = ub @ bi
+        idx = temp.indices()
+        val = torch.ones_like(temp.values())
+        ubi = torch.sparse_coo_tensor(indices=idx, values=val, size=temp.shape)
+        return ubi
+       
+    def load_ii_pairs(self, batch_size, ii_index):
+        '''
+        load item-item pair for BPR loss training
+        params:
+        ii_index: [ids,
+                   positive_ids]
+
+        return:[ids, 
+                positive_ids, 
+                negative_ids]
+        '''
+        # TODO: construct pos_set in __init__()
+        pos_item_set = None
+        neg_ids = []
+        id_set = torch.randint(0, ii_index.shape[1], (batch_size, ))
+        batch_idx = ii_index.T[id_set].T.tolist()
+        
+        
+        for i in batch_idx[0]:
+            neg_id = np.random.randint(0, self.num_items, 1)
+            while np.isin(neg_id, pos_item_set[i]):
+                neg_id = np.random.randint(0, self.num_items, 1)
+            neg_ids.append(neg_id)
+
+        batch_idx.append(neg_ids)
+        return batch_idx
     
-    def get_ubi(self, ub, ui):
+    def cal_bpr_item(self, ii_graph, mode='mean'):
         '''
-        Co-occurent matrix of users and items through bundles
+        calculate BPR loss for item-item
         '''
-        coo_ubi_weight = self.get_ubi_weighted(ub, ui).to_sparse_coo()
-        coo_ubi_weight_val = torch.ones_like(coo_ubi_weight.values)
-        coo_ubi_weight_idx = coo_ubi_weight.indices
-        coo_ubi = torch.sparse_coo_tensor(coo_ubi_weight_idx, \
-                                        coo_ubi_weight_val, \
-                                        coo_ubi_weight.shape).to_dense()
-        return coo_ubi
+        mask = torch.tril(torch.ones(ii_graph.shape), -1)
+        
+        cur_id, pos_id, neg_id = self.load_ii_pairs(2048, None)
+        cur_feat = self.items_feature[cur_id]
+        pos_feat = self.items_feature[pos_id]
+        neg_feat = self.items_feature[neg_id]
+
+        pos_score = cur_feat @ pos_feat.T
+        neg_score = cur_feat @ neg_feat.T
+
+        loss_bpr = -torch.log(torch.sigmoid(pos_score - neg_score))
+
+        if mode=='mean':
+            loss_bpr = torch.mean(loss_bpr)
+        elif mode=='sum':
+            loss_bpr = torch.sum(loss_bpr)
+        else:
+            raise ValueError(r"invalid mode i-i bpr")
+        return loss_bpr
