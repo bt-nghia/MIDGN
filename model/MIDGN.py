@@ -199,6 +199,9 @@ class MIDGN(Model):
                 pretrain['items_feature'])
             self.bundles_feature.data = F.normalize(
                 pretrain['bundles_feature'])
+            
+        self.bi_norm_graph = self.get_propagation_graph(self.bi_graph)
+        self.ui_norm_graph = self.get_propagation_graph(self.ui_graph)
 
     def one_propagate(self, graph, A_feature, B_feature, dnns):
         # node dropout on graph
@@ -239,6 +242,25 @@ class MIDGN(Model):
         A_feature, B_feature = torch.split(
             all_features, (A_feature.shape[0], B_feature.shape[0]), 0)
         return A_feature, B_feature
+    
+    def get_propagation_graph(self, bi_graph, device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        pro_graph = sp.bmat([[sp.csr_matrix((bi_graph.shape[0], bi_graph.shape[0])), bi_graph], 
+                             [bi_graph.T, sp.csr_matrix((bi_graph.shape[1], bi_graph.shape[1]))]])
+        
+        graph = pro_graph.tocoo()
+        vals = graph.data
+        pro_graph = sp.coo_matrix((vals, (graph.row, graph.col)), shape=graph.shape).tocsr()
+        norm_graph = laplace_transform(pro_graph)
+        return to_tensor(norm_graph).to(device)
+    
+    def light_propagate(self, propa_graph, A_feat, B_feat, n_layer=3):
+        feats = torch.cat((A_feat, B_feat), 0)
+        sum_feat = feats
+        for i in range(n_layer):
+            feats = torch.spmm(propa_graph, feats)
+            sum_feat+=feats
+
+        return sum_feat.split((A_feat.shape[0], B_feat.shape[0]), dim=0)
 
     def propagate(self):
 
@@ -247,25 +269,11 @@ class MIDGN(Model):
         bi_indices = torch.tensor([self.bi_graph_h, self.bi_graph_t], dtype=torch.long).to(self.device)
         ui_indices = torch.tensor([self.ui_graph_h, self.ui_graph_t], dtype=torch.long).to(self.device)
 
-        atom_bundles_feature, atom_item_feature, self.bi_avalues = self._create_star_routing_embed_with_p(self.bi_graph_h,
-                                                                                                     self.bi_graph_t,
-                                                                                                     self.bundles_feature,
-                                                                                                     self.items_feature,
-                                                                                                     self.num_bundles,
-                                                                                                     self.num_items,
-                                                                                                     self.bi_graph_shape,
-                                                                                                     n_factors=1,
-                                                                                                     pick_=False)
+        #------------------BI-------------------#
+        atom_bundles_feature, atom_item_feature = self.light_propagate(self.bi_norm_graph, self.bundles_feature, self.items_feature)
 
-        atom_user_feature, atom_item_feature2, self.ui_avalues = self._create_star_routing_embed_with_p(self.ui_graph_h,
-                                                                                                   self.ui_graph_t,
-                                                                                                   self.users_feature,
-                                                                                                   self.items_feature,
-                                                                                                   self.num_users,
-                                                                                                   self.num_items,
-                                                                                                   self.ui_graph_shape,
-                                                                                                   n_factors=self.n_factors,
-                                                                                                   pick_=False)
+        #------------------UI-------------------#
+        atom_user_feature, atom_item_feature2 = self.light_propagate(self.ui_norm_graph, self.users_feature, self.items_feature)
 
         ui_avalues_e_list = []
         ui_avalues_list = []
@@ -562,3 +570,28 @@ class MIDGN(Model):
         dcor = dcov_12 / (torch.sqrt(torch.maximum(dcov_11 * dcov_22, torch.tensor(0.0).to(self.device))) + 1e-10)
         # return tf.reduce_sum(D1) + tf.reduce_sum(D2)
         return dcor
+    
+
+    def contrastive_loss(self, eck, vck, topk_pos, topk_neg, usr=True, threshold=5e-1):
+        '''
+        calculate for all users/bundles
+        eck: users/bundles rep bf graph [n, embed_dim]
+        vck: users/bundles rep af graph [n, embed_dim]
+        threshold => sim_value > threshold belong to pos_set
+        '''
+        eck = F.normalize(eck, p=2, dim=1)
+        vck = F.normalize(vck, p=2, dim=1)
+
+        sim_mat = torch.matmul(eck, vck.T)
+        pos_set = torch.topk(sim_mat, k=topk_pos, dim=1)
+        neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
+        
+        # contain overlap pairs
+        pos_thres_mask = pos_set.values > threshold
+        neg_thres_mask = neg_set.values < threshold
+
+        pos_score = torch.sum(torch.exp(pos_set.values * pos_thres_mask), dim=1)
+        neg_score = torch.sum(torch.exp(neg_set.values * neg_thres_mask), dim=1)
+
+        c_loss = -torch.mean(torch.log(pos_score / neg_score))
+        return c_loss

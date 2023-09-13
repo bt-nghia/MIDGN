@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from time import time
 import os
 
-def test(model, loader, device, CONFIG, metrics):
+def test(model, loader, device, CONFIG, metrics, test=True):
     '''
     test for dot-based model
     '''
@@ -24,7 +24,11 @@ def test(model, loader, device, CONFIG, metrics):
             pred_b -= 1e8*train_mask_u_b.to(device)
             for metric in metrics:
                 metric(pred_b, ground_truth_u_b.to(device))
-    print('Test: time={:d}s'.format(int(time()-start)))
+    if test:
+        print('Test: time={:d}s'.format(int(time()-start)))
+    else:
+        print('Eval: time={:d}s'.format(int(time()-start)))
+        
     for metric in metrics:
         metric.stop()
         print('{}:{}'.format(metric.get_title(), metric.metric), end='\t')
