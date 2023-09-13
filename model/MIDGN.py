@@ -269,11 +269,31 @@ class MIDGN(Model):
         bi_indices = torch.tensor([self.bi_graph_h, self.bi_graph_t], dtype=torch.long).to(self.device)
         ui_indices = torch.tensor([self.ui_graph_h, self.ui_graph_t], dtype=torch.long).to(self.device)
 
-        #------------------BI-------------------#
-        atom_bundles_feature, atom_item_feature = self.light_propagate(self.bi_norm_graph, self.bundles_feature, self.items_feature)
+        # #------------------BI-------------------#
+        # atom_bundles_feature, atom_item_feature = self.light_propagate(self.bi_norm_graph, self.bundles_feature, self.items_feature)
 
-        #------------------UI-------------------#
-        atom_user_feature, atom_item_feature2 = self.light_propagate(self.ui_norm_graph, self.users_feature, self.items_feature)
+        # #------------------UI-------------------#
+        # atom_user_feature, atom_item_feature2 = self.light_propagate(self.ui_norm_graph, self.users_feature, self.items_feature)
+
+        atom_bundles_feature, atom_item_feature, self.bi_avalues = self._create_star_routing_embed_with_p(self.bi_graph_h,
+                                                                                                     self.bi_graph_t,
+                                                                                                     self.bundles_feature,
+                                                                                                     self.items_feature,
+                                                                                                     self.num_bundles,
+                                                                                                     self.num_items,
+                                                                                                     self.bi_graph_shape,
+                                                                                                     n_factors=1,
+                                                                                                     pick_=False)
+
+        atom_user_feature, atom_item_feature2, self.ui_avalues = self._create_star_routing_embed_with_p(self.ui_graph_h,
+                                                                                                   self.ui_graph_t,
+                                                                                                   self.users_feature,
+                                                                                                   self.items_feature,
+                                                                                                   self.num_users,
+                                                                                                   self.num_items,
+                                                                                                   self.ui_graph_shape,
+                                                                                                   n_factors=self.n_factors,
+                                                                                                   pick_=False)
 
         ui_avalues_e_list = []
         ui_avalues_list = []
