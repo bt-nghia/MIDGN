@@ -93,6 +93,7 @@ class MIDGN(Model):
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
+        self.n_layers = CONFIG['n_layers']
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
             torch.FloatTensor(self.num_items, emb_dim)).to(device)
@@ -253,14 +254,15 @@ class MIDGN(Model):
         norm_graph = laplace_transform(pro_graph)
         return to_tensor(norm_graph).to(device)
     
-    def light_propagate(self, propa_graph, A_feat, B_feat, n_layer=3):
+    def light_propagate(self, propa_graph, A_feat, B_feat):
         feats = torch.cat((A_feat, B_feat), 0)
         sum_feat = feats
-        for i in range(n_layer):
+        for i in range(self.n_layers):
             feats = torch.spmm(propa_graph, feats)
             sum_feat+=feats
 
-        return sum_feat.split((A_feat.shape[0], B_feat.shape[0]), dim=0)
+        A_feat, B_feat = sum_feat.split((A_feat.shape[0], B_feat.shape[0]), dim=0)
+        return A_feat, B_feat
 
     def propagate(self):
 
@@ -269,31 +271,14 @@ class MIDGN(Model):
         bi_indices = torch.tensor([self.bi_graph_h, self.bi_graph_t], dtype=torch.long).to(self.device)
         ui_indices = torch.tensor([self.ui_graph_h, self.ui_graph_t], dtype=torch.long).to(self.device)
 
-        # #------------------BI-------------------#
-        # atom_bundles_feature, atom_item_feature = self.light_propagate(self.bi_norm_graph, self.bundles_feature, self.items_feature)
+        #------------------BI-------------------#
+        atom_bundles_feature, atom_item_feature = self.light_propagate(self.bi_norm_graph, self.bundles_feature, self.items_feature)
 
-        # #------------------UI-------------------#
-        # atom_user_feature, atom_item_feature2 = self.light_propagate(self.ui_norm_graph, self.users_feature, self.items_feature)
+        #------------------UI-------------------#
+        atom_user_feature, atom_item_feature2 = self.light_propagate(self.ui_norm_graph, self.users_feature, self.items_feature)
 
-        atom_bundles_feature, atom_item_feature, self.bi_avalues = self._create_star_routing_embed_with_p(self.bi_graph_h,
-                                                                                                     self.bi_graph_t,
-                                                                                                     self.bundles_feature,
-                                                                                                     self.items_feature,
-                                                                                                     self.num_bundles,
-                                                                                                     self.num_items,
-                                                                                                     self.bi_graph_shape,
-                                                                                                     n_factors=1,
-                                                                                                     pick_=False)
-
-        atom_user_feature, atom_item_feature2, self.ui_avalues = self._create_star_routing_embed_with_p(self.ui_graph_h,
-                                                                                                   self.ui_graph_t,
-                                                                                                   self.users_feature,
-                                                                                                   self.items_feature,
-                                                                                                   self.num_users,
-                                                                                                   self.num_items,
-                                                                                                   self.ui_graph_shape,
-                                                                                                   n_factors=self.n_factors,
-                                                                                                   pick_=False)
+        #-----------------II--------------------
+        # atom_item3, atom_item4 = self.light_propagate()
 
         ui_avalues_e_list = []
         ui_avalues_list = []
