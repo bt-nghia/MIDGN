@@ -337,8 +337,6 @@ class MIDGN(Model):
         bundles_embedding = [i[bundles] for i in bundles_feature]  # b_f --> batch_n_f
         pred = self.predict(users_embedding, bundles_embedding)
         loss = self.regularize(users_embedding, bundles_embedding)
-        items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
-            torch.int64).to(self.device)
         l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
                 + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
         loss = loss
