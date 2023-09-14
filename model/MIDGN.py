@@ -87,7 +87,7 @@ class MIDGN(Model):
 
         self.epison = 1e-8
         self.cor_flag = 1
-        self.corDecay = 1e-2
+        self.corDecay = CONFIG['corDecay']
         self.n_factors = 4
         self.n_layers = 3
         self.num_layers = 2
@@ -283,6 +283,8 @@ class MIDGN(Model):
         ui_avalues_e_list = []
         ui_avalues_list = []
 
+        items_feat = torch.cat((atom_item_feature, atom_item_feature2), dim=1)
+
         non_atom_users_feature, non_atom_bundles_feature = self.ub_propagate(
             self.non_atom_graph, atom_user_feature, atom_bundles_feature)
 
@@ -304,9 +306,11 @@ class MIDGN(Model):
                            users_feature]  # u_f --> batch_f --> batch_n_f
         bundles_embedding = [i[bundles] for i in bundles_feature]  # b_f --> batch_n_f
         pred = self.predict(users_embedding, bundles_embedding)
-        loss = self.regularize(users_embedding, bundles_embedding)
-        loss = loss
-        return pred, loss,  torch.zeros(1).to(self.device)[0]#-self.inten_score * 0.01  # self.cor_loss[0]#
+        L2loss = self.regularize(users_embedding, bundles_embedding)
+        L2loss = L2loss
+        l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
+                + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
+        return pred, L2loss, self.corDecay * l_cor#-self.inten_score * 0.01  # self.cor_loss[0]#
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f

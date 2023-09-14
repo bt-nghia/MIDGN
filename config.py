@@ -36,5 +36,6 @@ CONFIG = {
     'batch_size_train': 2048,
     'batch_size_test': 1024,
     'n_layers': 2,
+    'corDecay': 1e-2,
 }
 
