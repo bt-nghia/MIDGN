@@ -314,7 +314,7 @@ class MIDGN(Model):
         # l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
                 # + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
         # return pred, L2loss, self.beta * l_cor#-self.inten_score * 0.01  # self.cor_loss[0]#
-        return pred, L2loss, torch.zeros(1).to(self.device)
+        return pred, L2loss, torch.zeros(1).to(self.device)[0]
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
