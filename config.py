@@ -28,13 +28,13 @@ CONFIG = {
     'epochs': 1000,
     'early': 50,
     'log_interval': 20,
-    'test_interval': 5,
+    'test_interval': 1,
     'retry': 1,
 
     ## test path
     'test':['log/iFashion_sample'],
-    'batch_size_train': 65536,
-    'batch_size_test': 16384,
+    'batch_size_train': 131072,
+    'batch_size_test': 65536,
     'n_layers': 2,
     'corDecay': 1e-2,
     'topk_pos': 30,
