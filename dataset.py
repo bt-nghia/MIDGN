@@ -168,6 +168,7 @@ class BundleTestDataset(BasicDataset):
 class ItemDataset(BasicDataset):
     def __init__(self, path, name, assist_data, seed=None):
         super().__init__(path, name, 'train', 1)
+        print(self.num_users, self.num_items)
         # U-I
         self.U_I_pairs = self.load_U_I_interaction()
         indice = np.array(self.U_I_pairs, dtype=np.int32)
