@@ -3,8 +3,10 @@ import random
 import os.path as osp
 import pandas as pd
 import shutil
+import numpy as np
 
 sample_size = 10000
+
 cur_dir = ""
 dir = "../iFashion"
 col_names = ['user', 'bundle']
@@ -14,9 +16,9 @@ user_bundle_test = pd.read_csv(osp.join(dir, 'user_bundle_test.txt'), sep='\t', 
 user_bundle_tune = pd.read_csv(osp.join(dir, 'user_bundle_tune.txt'), sep='\t', names=col_names)
 user_item = pd.read_csv(osp.join(dir, 'user_item.txt'), sep='\t', names=col_names)
 
-ids = user_bundle_train['user'].unique().reshape(-1)
-random.shuffle(ids)
-sample_ids = ids[:sample_size]
+# ids = user_bundle_train['user'].unique().reshape(-1)
+# random.shuffle(ids)
+sample_ids = np.arange(0, sample_size)
 
 user_bundle_train = user_bundle_train[user_bundle_train['user'].isin(sample_ids)]
 user_bundle_test = user_bundle_test[user_bundle_test['user'].isin(sample_ids)]
