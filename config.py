@@ -33,8 +33,8 @@ CONFIG = {
 
     ## test path
     'test':['log/iFashion_sample'],
-    'batch_size_train': 4086,
-    'batch_size_test': 2048,
+    'batch_size_train': 16384,
+    'batch_size_test': 16384,
     'n_layers': 2,
     'corDecay': 1e-2,
     'topk_pos': 30,
