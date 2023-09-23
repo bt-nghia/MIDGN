@@ -5,7 +5,7 @@ import pandas as pd
 import shutil
 import numpy as np
 
-sample_size = 10000
+sample_size = 20000
 
 cur_dir = ""
 dir = "../iFashion"
