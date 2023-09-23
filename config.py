@@ -28,7 +28,7 @@ CONFIG = {
     'epochs': 1000,
     'early': 50,
     'log_interval': 20,
-    'test_interval': 1,
+    'test_interval': 5,
     'retry': 1,
 
     ## test path
