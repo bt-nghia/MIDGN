@@ -8,7 +8,7 @@ CONFIG = {
     'gpu_id': "0",
     'note': 'some_note',
     'model': 'MIDGN',
-    'dataset_name': 'Youshu',
+    'dataset_name': 'iFashion_sample',
     'task': 'tune',
     'eval_task': 'test',
 
@@ -22,7 +22,7 @@ CONFIG = {
     'sample': 'simple',
     'hard_window': [0.7, 1.0], # top 30%
     'hard_prob': [0.3, 0.3], # probability 0.8
-    'conti_train': 'log/Youshu/',
+    'conti_train': 'log/iFashion_sample/',
 
     ## other settings
     'epochs': 1000,
@@ -32,10 +32,12 @@ CONFIG = {
     'retry': 1,
 
     ## test path
-    'test':['log/Youshu'],
+    'test':['log/iFashion_sample'],
     'batch_size_train': 2048,
     'batch_size_test': 1024,
     'n_layers': 2,
     'corDecay': 1e-2,
+    'topk_pos': 30,
+    'topk_neg': 30,
 }
 

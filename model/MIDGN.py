@@ -93,7 +93,10 @@ class MIDGN(Model):
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
+        self.beta = 0.04
         self.n_layers = CONFIG['n_layers']
+        self.topk_pos = CONFIG['topk_pos']
+        self.topk_neg = CONFIG['topk_neg']
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
             torch.FloatTensor(self.num_items, emb_dim)).to(device)
@@ -310,7 +313,7 @@ class MIDGN(Model):
         L2loss = L2loss
         l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
                 + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
-        return pred, L2loss, self.corDecay * l_cor#-self.inten_score * 0.01  # self.cor_loss[0]#
+        return pred, L2loss, self.beta * l_cor#-self.inten_score * 0.01  # self.cor_loss[0]#
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
@@ -599,5 +602,40 @@ class MIDGN(Model):
         pos_score = torch.sum(torch.exp(pos_set.values * pos_thres_mask), dim=1)
         neg_score = torch.sum(torch.exp(neg_set.values * neg_thres_mask), dim=1)
 
+        c_loss = -torch.mean(torch.log(pos_score / neg_score))
+        return c_loss
+    
+    def cor_loss(self, pos, aug):
+        pes = pes[:, 0, :]
+        aug = aug[:, 0, :]
+
+        pes = F.normalize(pos, p=2, dim=1)
+        aug = F.normalize(aug, p=2, dim=1)
+
+        sim = torch.sum(pes * aug, dim=1)
+        ttl_score = torch.matmul(pos, aug.T)
+
+        pos_score = torch.exp(sim / self.c_temp)
+        neg_score = torch.sum(torch.exp(ttl_score), dim=1)
+
+        return -torch.mean(torch.log(pos_score / (neg_score - pos_score)))
+    
+
+    def contrastive_loss(self, eck, vck, topk_pos, topk_neg, usr=True, threshold=5e-1):
+        '''
+        calculate for all users/bundles
+        eck: users/bundles rep bf graph [n, embed_dim]
+        vck: users/bundles rep af graph [n, embed_dim]
+        threshold => sim_value > threshold belong to pos_set
+        '''
+        eck = F.normalize(eck, p=2, dim=1)
+        vck = F.normalize(vck, p=2, dim=1)
+
+        sim_mat = torch.matmul(eck, vck.T)
+        pos_set = torch.topk(sim_mat, k=topk_pos, dim=1)
+        neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
+
+        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
+        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
         c_loss = -torch.mean(torch.log(pos_score / neg_score))
         return c_loss
