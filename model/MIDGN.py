@@ -87,16 +87,12 @@ class MIDGN(Model):
 
         self.epison = 1e-8
         self.cor_flag = 1
-        self.corDecay = CONFIG['corDecay']
+        self.corDecay = 1e-2
         self.n_factors = 4
         self.n_layers = 3
         self.num_layers = 2
         self.n_iterations = 2
         self.pick_level = 1e10
-        self.beta = 0.04
-        self.n_layers = CONFIG['n_layers']
-        self.topk_pos = CONFIG['topk_pos']
-        self.topk_neg = CONFIG['topk_neg']
         emb_dim = int(int(self.embedding_size) / self.n_factors)
         self.items_feature_each = nn.Parameter(
             torch.FloatTensor(self.num_items, emb_dim)).to(device)
@@ -203,9 +199,6 @@ class MIDGN(Model):
                 pretrain['items_feature'])
             self.bundles_feature.data = F.normalize(
                 pretrain['bundles_feature'])
-            
-        self.bi_norm_graph = self.get_propagation_graph(self.bi_graph)
-        self.ui_norm_graph = self.get_propagation_graph(self.ui_graph)
 
     def one_propagate(self, graph, A_feature, B_feature, dnns):
         # node dropout on graph
@@ -246,26 +239,6 @@ class MIDGN(Model):
         A_feature, B_feature = torch.split(
             all_features, (A_feature.shape[0], B_feature.shape[0]), 0)
         return A_feature, B_feature
-    
-    def get_propagation_graph(self, bi_graph, device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        pro_graph = sp.bmat([[sp.csr_matrix((bi_graph.shape[0], bi_graph.shape[0])), bi_graph], 
-                             [bi_graph.T, sp.csr_matrix((bi_graph.shape[1], bi_graph.shape[1]))]])
-        
-        graph = pro_graph.tocoo()
-        vals = graph.data
-        pro_graph = sp.coo_matrix((vals, (graph.row, graph.col)), shape=graph.shape).tocsr()
-        norm_graph = laplace_transform(pro_graph)
-        return to_tensor(norm_graph).to(device)
-    
-    def light_propagate(self, propa_graph, A_feat, B_feat):
-        feats = torch.cat((A_feat, B_feat), 0)
-        sum_feat = feats
-        for i in range(self.n_layers):
-            feats = torch.spmm(propa_graph, feats)
-            sum_feat+=feats
-
-        A_feat, B_feat = sum_feat.split((A_feat.shape[0], B_feat.shape[0]), dim=0)
-        return A_feat, B_feat
 
     def propagate(self):
 
@@ -274,19 +247,28 @@ class MIDGN(Model):
         bi_indices = torch.tensor([self.bi_graph_h, self.bi_graph_t], dtype=torch.long).to(self.device)
         ui_indices = torch.tensor([self.ui_graph_h, self.ui_graph_t], dtype=torch.long).to(self.device)
 
-        #------------------BI-------------------#
-        atom_bundles_feature, atom_item_feature = self.light_propagate(self.bi_norm_graph, self.bundles_feature, self.items_feature)
+        atom_bundles_feature, atom_item_feature, self.bi_avalues = self._create_star_routing_embed_with_p(self.bi_graph_h,
+                                                                                                     self.bi_graph_t,
+                                                                                                     self.bundles_feature,
+                                                                                                     self.items_feature,
+                                                                                                     self.num_bundles,
+                                                                                                     self.num_items,
+                                                                                                     self.bi_graph_shape,
+                                                                                                     n_factors=1,
+                                                                                                     pick_=False)
 
-        #------------------UI-------------------#
-        atom_user_feature, atom_item_feature2 = self.light_propagate(self.ui_norm_graph, self.users_feature, self.items_feature)
-
-        #-----------------II--------------------
-        # atom_item3, atom_item4 = self.light_propagate()
+        atom_user_feature, atom_item_feature2, self.ui_avalues = self._create_star_routing_embed_with_p(self.ui_graph_h,
+                                                                                                   self.ui_graph_t,
+                                                                                                   self.users_feature,
+                                                                                                   self.items_feature,
+                                                                                                   self.num_users,
+                                                                                                   self.num_items,
+                                                                                                   self.ui_graph_shape,
+                                                                                                   n_factors=self.n_factors,
+                                                                                                   pick_=False)
 
         ui_avalues_e_list = []
         ui_avalues_list = []
-
-        items_feat = torch.cat((atom_item_feature, atom_item_feature2), dim=1)
 
         non_atom_users_feature, non_atom_bundles_feature = self.ub_propagate(
             self.non_atom_graph, atom_user_feature, atom_bundles_feature)
@@ -309,12 +291,12 @@ class MIDGN(Model):
                            users_feature]  # u_f --> batch_f --> batch_n_f
         bundles_embedding = [i[bundles] for i in bundles_feature]  # b_f --> batch_n_f
         pred = self.predict(users_embedding, bundles_embedding)
-        L2loss = self.regularize(users_embedding, bundles_embedding)
-        L2loss = L2loss
-        # l_cor = ( self.contrastive_loss(users_feature[0], users_feature[1], self.topk_pos, self.topk_neg) \
-                # + self.contrastive_loss(bundles_feature[0], bundles_feature[1], self.topk_pos, self.topk_neg, usr=False)) / 2
-        # return pred, L2loss, self.beta * l_cor#-self.inten_score * 0.01  # self.cor_loss[0]#
-        return pred, L2loss, torch.zeros(1).to(self.device)[0]
+        loss = self.regularize(users_embedding, bundles_embedding)
+        items = torch.tensor([np.random.choice(self.bi_graph[i].indices) for i in bundles.cpu()[:, 0]]).type(
+            torch.int64).to(self.device)
+
+        loss = loss
+        return pred, loss,  torch.zeros(1).to(self.device)[0]#-self.inten_score * 0.01  # self.cor_loss[0]#
 
     def regularize(self, users_feature, bundles_feature):
         users_feature_atom, users_feature_non_atom = users_feature  # batch_n_f
@@ -580,39 +562,3 @@ class MIDGN(Model):
         dcor = dcov_12 / (torch.sqrt(torch.maximum(dcov_11 * dcov_22, torch.tensor(0.0).to(self.device))) + 1e-10)
         # return tf.reduce_sum(D1) + tf.reduce_sum(D2)
         return dcor
-    
-
-    def cor_loss(self, pos, aug):
-        pes = pes[:, 0, :]
-        aug = aug[:, 0, :]
-
-        pes = F.normalize(pos, p=2, dim=1)
-        aug = F.normalize(aug, p=2, dim=1)
-
-        sim = torch.sum(pes * aug, dim=1)
-        ttl_score = torch.matmul(pos, aug.T)
-
-        pos_score = torch.exp(sim / self.c_temp)
-        neg_score = torch.sum(torch.exp(ttl_score), dim=1)
-
-        return -torch.mean(torch.log(pos_score / (neg_score - pos_score)))
-    
-
-    def contrastive_loss(self, eck, vck, topk_pos, topk_neg, usr=True, threshold=5e-1):
-        '''
-        calculate for all users/bundles
-        eck: users/bundles rep bf graph [n, embed_dim]
-        vck: users/bundles rep af graph [n, embed_dim]
-        threshold => sim_value > threshold belong to pos_set
-        '''
-        eck = F.normalize(eck, p=2, dim=1)
-        vck = F.normalize(vck, p=2, dim=1)
-
-        sim_mat = torch.matmul(eck, vck.T)
-        pos_set = torch.topk(sim_mat, k=topk_pos, dim=1)
-        neg_set = torch.topk(sim_mat, k=topk_neg, dim=1, largest=False)
-
-        pos_score = torch.sum(torch.exp(pos_set.values), dim=1)
-        neg_score = torch.sum(torch.exp(neg_set.values), dim=1)
-        c_loss = -torch.mean(torch.log(pos_score / neg_score))
-        return c_loss
